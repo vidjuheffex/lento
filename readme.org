@@ -1,0 +1,13 @@
+* Lento
+
+** Building
+*** Prerequisites
+- libportaudio-dev 
+- libmpg123-dev
+
+*** Akku Environment
+Lento uses [[https://akkuscm.org/][Akku]]. Clone the repository and enter the directory. 
+Running ~akku install~ and then ~.akku/env~ should be all that is needed. 
+
+** Running
+After running the akku environment, the script can be called with the ~--script~ flag and an mp3 file.
