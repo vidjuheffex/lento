@@ -1,0 +1,9 @@
+#!r6rs ; -*- mode: scheme; coding: utf-8 -*-
+(import (akku format manifest))
+
+(akku-package ("lento" "1.0.0-alpha.0")
+  (synopsis "Lento is an audio application test using mpg123 to decode mp3s and PortAudio for playback")
+  (authors "Julian Herrera")
+  (license "MIT")
+  (depends ("chez-srfi" ">=0.0.0-akku <1.0.0"))
+)
