@@ -4,10 +4,9 @@
 ;; SPDX-License-Identifier: MIT
 #!r6rs
 
-(import (chezscheme)(lento))
+(import (chezscheme)(lento)(prefix (mpg123) mpg123:))
 
 (define lib-portaudio (load-shared-object "libportaudio.so"))
-(define lib-mpg123 (load-shared-object "libmpg123.so"))
 
 (define-syntax define-function
   (syntax-rules ()
@@ -72,17 +71,6 @@
 (define-function PaError pa:stop-stream Pa_StopStream ((* PPaStream)))
 (define-function PaError pa:close-stream Pa_CloseStream ((* PPaStream)))
 
-;; mpg123 Functions
-(define-function int %mpg123:initialize mpg123_init ())
-(define-function string mpg123:get-error-text mpg123_plain_strerror (int))
-(define-function void* %mpg123:decoders mpg123_decoders ())
-(define-function string mpg123:get-current-decoder mpg123_current_decoder (void*))
-(define-function void* mpg123:new mpg123_new (void*))
-(define-function int mpg123:open mpg123_open (void* string))
-(define-function int mpg123:get-format mpg123_getformat (void* void* void* void*))
-(define-function int mpg123:read mpg123_read (void* void* size_t (* size_t)))
-(define-function size_t mpg123:outblock mpg123_outblock	(void*))
-
 (define (pa:initialize)
   (let ([err (%pa:initialize)])
     (if (not (zero? err))
@@ -91,64 +79,39 @@
           (display "portaudio initialized")
           (newline)))))
 
-(define (mpg123:initialize)
-  (let ([err (%mpg123:initialize)])
-    (if (not (zero? err))
-        (mpg123:handle-error err)
-        (begin
-          (display "mpg123 initialized")
-          (newline)))))
 
 (define (pa:handle-error err)
   (let ([error-text (pa:get-error-text err)])
     (display error-text)
     (newline)))
 
-(define (mpg123:handle-error err)
-  (let ([error-text (mpg123:get-error-text err)])
-    (display error-text)))
-
-(define (mpg123:decoders)
-  (let ([mem-block-ptr (foreign-ref 'void* (%mpg123:decoders) 0)])
-    (define (inner index list-of-decoders decoder-str prev-value)
-      (let ([value (foreign-ref 'char mem-block-ptr index)])
-        (if (eq? value #\nul)
-            (if (eq? prev-value #\nul)
-                (reverse list-of-decoders)
-                (begin
-                  (inner (+ 1 index)
-                         (cons decoder-str list-of-decoders) "" value)))
-            (inner (+ 1 index) list-of-decoders (string-append decoder-str (string value)) value))))
-    (inner 0 '() "" #\nul)))
-  
 ;; Initialize the Application
 (pa:initialize)
 (mpg123:initialize)
 
-;;(display (mpg123:decoders))
-;;(display (mpg123:get-current-decoder my-handle))
-
-(define rate (foreign-alloc (ftype-sizeof long)))
-(define channels (foreign-alloc (ftype-sizeof int)))
-(define encoding (foreign-alloc (ftype-sizeof int)))
+(define rate)
+(define channels)
+(define encoding)
 
 ;; set up a mpg123:handle, pass 0 to use the default decoder.
-(define handle (mpg123:new 0))
+(define handle (mpg123:new-handle))
 
 ;; the filename is the first (and only) item in the list `command-line-arguments`
 (define audio-file (car (command-line-arguments)))
 
 ;; open the audio file, passing in the handle to which you attach everything.
-(mpg123:open handle audio-file)
+(mpg123:open-stream handle audio-file)
 
 ;; once more, handle goes, as well as ADDRESSES to 
-(mpg123:get-format handle rate channels encoding)
-;; foreign-refs to these now show updated values
+(mpg123:get-format handle (lambda (r c e)
+                            (set! rate r)
+                            (set! channels c)
+                            (set! encoding e)))
 
 ;; allocate space for the stream parameter struct that needs initializing
 (define output-parameters-ptr
-  (make-ftype-pointer PaStreamParameters
-                      (foreign-alloc (ftype-sizeof PaStreamParameters))))
+ (make-ftype-pointer PaStreamParameters
+                     (foreign-alloc (ftype-sizeof PaStreamParameters))))
 
 
 (define stream (make-ftype-pointer PPaStream (foreign-alloc (ftype-sizeof PPaStream))))
@@ -161,17 +124,17 @@
             (device)
             output-parameters-ptr output-device)
 (ftype-set! PaStreamParameters
-            (channelCount)
-            output-parameters-ptr
-            (foreign-ref 'int channels 0))
+           (channelCount)
+           output-parameters-ptr
+           channels)
 (ftype-set! PaStreamParameters
-            (sampleFormat)
-            output-parameters-ptr pa:int16)
+           (sampleFormat)
+          output-parameters-ptr pa:int16)
 (ftype-set! PaStreamParameters
-             (suggestedLatency)
-             output-parameters-ptr
-             (ftype-ref PaDeviceInfo
-                        (defaultHighOutputLatency) device-info-ptr))
+            (suggestedLatency)
+          output-parameters-ptr
+          (ftype-ref PaDeviceInfo
+                    (defaultHighOutputLatency) device-info-ptr))
 (ftype-set! PaStreamParameters
             (hostApiSpecificStreamInfo)
             output-parameters-ptr 0)
@@ -180,24 +143,23 @@
                   stream                               ; stream ptr
                   0                                    ; inputStream params ptr, nul(0) byte for output stream
                   output-parameters-ptr                ; outputStream params ptr
-                  (* (foreign-ref 'long rate  0) 1.0)  ; extract rate value from rate ptr
+                  (* rate 1.0)  ; extract rate value from rate ptr
                   64                                  ;;
-                  pa:clip-off 0 0))
+                 pa:clip-off 0 0))
 
 (define stream-ptr (foreign-ref 'void* (ftype-pointer-address stream) 0)) ;;whats at the pointer to the pointer
-(pa:handle-error (pa:start-stream stream-ptr))
 (define buffer-size (mpg123:outblock handle))
 (define output-buffer (foreign-alloc buffer-size))
-;;(define output-buffer (make-ftype-pointer buffer-array (foreign-alloc (ftype-sizeof buffer-array))))
-(let play ([sample 0])
-  (let ([status (mpg123:read handle output-buffer buffer-size done-ptr)])
-    (if (zero? status)
-        (begin
-          (pa:handle-error (pa:write-stream stream-ptr output-buffer (/ buffer-size 4)))
-          (display "on sample ")
-          (display sample)
-          (newline)
-          (play (+ 1 sample)))
-        (display "done"))))
 
+(pa:start-stream stream-ptr)
 
+(let play ([sample 0]
+           [done #f])
+  (guard (x [(warning? x) (set! done #t)])
+    (mpg123:read-stream handle output-buffer buffer-size done-ptr))
+  (pa:write-stream stream-ptr output-buffer (/ buffer-size 4))
+  (if (not done)
+      (play (+ 1 sample) done)))
+
+(pa:stop-stream stream-ptr)
+(pa:close-stream stream-ptr)
