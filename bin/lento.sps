@@ -4,7 +4,7 @@
 ;; SPDX-License-Identifier: MIT
 #!r6rs
 
-(import (chezscheme)(lento)(prefix (mpg123) mpg123:))
+(import (chezscheme)(prefix (mpg123) mpg123:)(lento))
 
 (define lib-portaudio (load-shared-object "libportaudio.so"))
 
@@ -51,7 +51,7 @@
    [defaultHighInputLatency PaTime]
    [defaultHighOutputLatency PaTime]))
 
-;; PortAudio Functions
+;; ;; PortAudio Functions
 (define-function PaError %pa:initialize Pa_Initialize ())
 (define-function PaError pa:terminate Pa_Terminate ())
 (define-function string pa:get-error-text Pa_GetErrorText (PaError))
@@ -68,8 +68,8 @@
    void*))
 (define-function PaError pa:start-stream Pa_StartStream (void*))
 (define-function PaError pa:write-stream Pa_WriteStream (void* void* unsigned-long))
-(define-function PaError pa:stop-stream Pa_StopStream ((* PPaStream)))
-(define-function PaError pa:close-stream Pa_CloseStream ((* PPaStream)))
+(define-function PaError pa:stop-stream Pa_StopStream (void*))
+(define-function PaError pa:close-stream Pa_CloseStream (void*))
 
 (define (pa:initialize)
   (let ([err (%pa:initialize)])
@@ -79,13 +79,12 @@
           (display "portaudio initialized")
           (newline)))))
 
-
 (define (pa:handle-error err)
   (let ([error-text (pa:get-error-text err)])
     (display error-text)
     (newline)))
 
-;; Initialize the Application
+;; ;; Initialize the Application
 (pa:initialize)
 (mpg123:initialize)
 
@@ -93,7 +92,6 @@
 (define channels)
 (define encoding)
 
-;; set up a mpg123:handle, pass 0 to use the default decoder.
 (define handle (mpg123:new-handle))
 
 ;; the filename is the first (and only) item in the list `command-line-arguments`
@@ -104,18 +102,17 @@
 
 ;; once more, handle goes, as well as ADDRESSES to 
 (mpg123:get-format handle (lambda (r c e)
-                            (set! rate r)
-                            (set! channels c)
-                            (set! encoding e)))
+                     (set! rate r)
+                     (set! channels c)
+                     (set! encoding e)))
+;; ;; foreign-refs to these now show updated values
 
-;; allocate space for the stream parameter struct that needs initializing
+;; ;; allocate space for the stream parameter struct that needs initializing
 (define output-parameters-ptr
- (make-ftype-pointer PaStreamParameters
-                     (foreign-alloc (ftype-sizeof PaStreamParameters))))
-
+  (make-ftype-pointer PaStreamParameters
+                      (foreign-alloc (ftype-sizeof PaStreamParameters))))
 
 (define stream (make-ftype-pointer PPaStream (foreign-alloc (ftype-sizeof PPaStream))))
-
 (define output-device (pa:get-default-output-device))
 (define device-info-ptr (pa:get-device-info output-device))
 
@@ -124,28 +121,29 @@
             (device)
             output-parameters-ptr output-device)
 (ftype-set! PaStreamParameters
-           (channelCount)
-           output-parameters-ptr
-           channels)
+            (channelCount)
+            output-parameters-ptr
+            channels)
 (ftype-set! PaStreamParameters
-           (sampleFormat)
-          output-parameters-ptr pa:int16)
+            (sampleFormat)
+            output-parameters-ptr pa:int16)
 (ftype-set! PaStreamParameters
             (suggestedLatency)
-          output-parameters-ptr
-          (ftype-ref PaDeviceInfo
-                    (defaultHighOutputLatency) device-info-ptr))
+            output-parameters-ptr
+            (ftype-ref PaDeviceInfo
+                       (defaultHighOutputLatency) device-info-ptr))
 (ftype-set! PaStreamParameters
             (hostApiSpecificStreamInfo)
-            output-parameters-ptr 0)
+             output-parameters-ptr 0)
 
-(pa:handle-error (pa:open-stream                       ; call to open the stream
-                  stream                               ; stream ptr
-                  0                                    ; inputStream params ptr, nul(0) byte for output stream
-                  output-parameters-ptr                ; outputStream params ptr
-                  (* rate 1.0)  ; extract rate value from rate ptr
-                  64                                  ;;
-                 pa:clip-off 0 0))
+(pa:open-stream stream                               ; call to open the stream, first passing the stream-ptr
+                0                                    ; inputStream params ptr, nul(0) byte for output stream
+                output-parameters-ptr                ; outputStream params ptr
+                (* rate 1.0)  ; extract rate value from rate ptr
+                0                                    ; 0 so the system determines the optimal frames per buffer
+                pa:clip-off
+                0
+                0)
 
 (define stream-ptr (foreign-ref 'void* (ftype-pointer-address stream) 0)) ;;whats at the pointer to the pointer
 (define buffer-size (mpg123:outblock handle))
