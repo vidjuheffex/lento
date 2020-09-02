@@ -70,6 +70,7 @@
 (define-function PaError pa:write-stream Pa_WriteStream (void* void* unsigned-long))
 (define-function PaError pa:stop-stream Pa_StopStream (void*))
 (define-function PaError pa:close-stream Pa_CloseStream (void*))
+(define-function PaError pa:terminate Pa_Terminate ())
 
 (define (pa:initialize)
   (let ([err (%pa:initialize)])
@@ -161,3 +162,4 @@
 
 (pa:stop-stream stream-ptr)
 (pa:close-stream stream-ptr)
+(pa:terminate)
